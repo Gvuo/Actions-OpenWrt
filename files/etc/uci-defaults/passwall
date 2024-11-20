@@ -1,0 +1,13 @@
+uci set passwall.@global[0].enabled='1'
+uci set passwall.@global[0].remote_dns='8.8.8.8'
+uci set passwall.@global_delay[0].start_delay='10'
+uci set passwall.@global_rules[0].auto_update='1'
+uci set passwall.@global_rules[0].week_update='8'
+uci set passwall.@global_rules[0].interval_update='12'
+uci add passwall subscribe_list
+uci set passwall.@subscribe_list[0].remark='123'
+uci set passwall.@subscribe_list[0].url='https://a0782bbe-46e1-9a72-9e3783b0259d.pigfarmcloud.com/api/v1/client/subscribe?token=610cd9b909a88876dc2b205f69b9fdda'
+uci commit passwall
+
+uci set shadowsocksr.@server_subscribe[0].subscribe_url='https://a0782bbe-46e1-9a72-9e3783b0259d.pigfarmcloud.com/api/v1/client/subscribe?token=610cd9b909a88876dc2b205f69b9fdda'
+uci commit shadowsocksr
