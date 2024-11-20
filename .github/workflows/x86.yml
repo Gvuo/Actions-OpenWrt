@@ -1,0 +1,368 @@
+###########################################################
+#   Description: Compile OpenWrt by GitHub Actions        #
+#   Based on: https://github.com/P3TERX/Actions-OpenWrt   #
+#   Author: Hyy2001X                                      #
+###########################################################
+
+name: Lean_x86
+
+on:
+  repository_dispatch:
+  ## Git Push 时触发编译(不要删除此行注释)
+  #push:
+  #  branches: 
+  #    - master
+  
+  ## 定时触发编译(不要删除此行注释)
+  #schedule:
+  #  - cron: 0 8 * * 5
+  
+  ## 重新点亮 Star 时触发编译(不要删除此行注释)
+  #watch:
+  #  types: [started]
+  
+  ### 界面控制部分 ( 以下内容请保持不变, 如有需要仅修改 options 选项 )
+  workflow_dispatch:
+    inputs:
+     Generate_EMMC_firmware:
+        description: '是否生成EMMC固件'
+        required: false
+        default: 'true'
+        type: boolean
+     SSH_ACTION:
+        description: 'SSH远程配置固件'
+        required: false
+        default: 'false'
+        type: boolean
+     CACHE_TOOLCHAIN:
+        description: '缓存加速编译'
+        required: false
+        default: 'true'
+        type: boolean
+     UPLOAD_RELEASES:
+        description: '上传固件到 Releases'
+        default: 'true'
+        type: boolean
+     UPLOAD_BIN_ARTIFACTS:
+        description: '上传 bin 文件夹到 Artifacts'
+        default: 'false'
+        type: boolean
+      ### 界面控制部分结束 ( 以上内容请保持不变 )
+
+### 请按需求修改以下内容
+### 环境变量设置
+env:
+# 源码仓库
+  REPO_URL: https://github.com/coolsnowwolf/lede
+# 源码分支
+  REPO_BRANCH: master
+# 编译时调用的 [.config] 文件名称
+  CONFIG_FILE: lean/x86/.config
+# 加载自定义脚本
+  DIY_P1_SH: lean/x86/diy1.sh
+# 加载自定义配置
+  DIY_P2_SH: lean/x86/diy2.sh
+# 固件_标签
+  FIRMWARE_TAG: Lean_x86固件
+# 中国上海时区
+  TZ: Asia/Shanghai
+### 结束
+### 请按需求修改以上内容
+
+jobs:
+  Build:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - name: 检查服务器性能
+      run: |
+        echo "警告⚠"
+        echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
+        echo -e "已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 \n"
+        echo "--------------------------CPU信息--------------------------"
+        echo "CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+        echo -e "CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
+        echo "--------------------------内存信息--------------------------"
+        echo "已安装内存详细信息："
+        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
+        echo "--------------------------硬盘信息--------------------------"
+        echo "硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+        cpu_nproc=$(nproc)
+        if [[ "$cpu_nproc" =~ "4" ]]; then
+          echo "CPU为4核，继续执行命令"
+        else
+          echo "CPU不为4核，性能不足，停止执行命令"
+          exit 1
+        fi
+
+    - name: 初始化环境
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        docker rmi $(docker images -q)
+        sudo rm -rf /usr/share/dotnet /etc/apt/sources.list.d /usr/local/lib/android $AGENT_TOOLSDIRECTORY
+        sudo -E apt-get -y purge azure-cli ghc* zulu* llvm* firefox google* dotnet* powershell openjdk* mongodb* moby* || true
+        sudo -E apt-get -y update
+        sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+        sudo -E systemctl daemon-reload
+        sudo -E apt-get -y autoremove --purge
+        sudo -E apt-get -y clean
+        sudo timedatectl set-timezone "$TZ"
+
+    - name: 更新时区、编译时间
+      id: date
+      run: |
+          sudo timedatectl set-timezone "$TZ"
+          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+          echo "FILE_TIME=$(date +"%m-%d %H.%M")" >> $GITHUB_ENV
+          echo "FILE_TIME1=$(date "+%Y年%m月%d日-%H点%M分")" >> $GITHUB_ENV
+          echo "FILE_TIME2=$(date "+%Y%m%d-%H%M")" >> $GITHUB_ENV
+          echo "编译开始时间..."
+          START_TIME=`date +'%Y-%m-%d %H:%M:%S'`
+          echo "START_SECONDS=$(date --date="$START_TIME" +%s)" >> $GITHUB_ENV
+
+    - name: 合并磁盘
+      uses: easimon/maximize-build-space@master
+      with:
+        swap-size-mb: 1024
+        temp-reserve-mb: 100
+        root-reserve-mb: 1024
+
+    - name: 准备完成
+      uses: actions/checkout@main
+
+    - name: 克隆源代码
+      run: |
+        df -hT $GITHUB_WORKSPACE
+        git clone $REPO_URL -b $REPO_BRANCH openwrt
+        cd openwrt
+        ./scripts/feeds update -a
+        ./scripts/feeds install -a
+        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV
+        VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H")
+        echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
+
+    - name: 加载自定义脚本
+      run: |
+        chmod +x $DIY_P1_SH
+        cd $OPENWRT_PATH
+        $GITHUB_WORKSPACE/$DIY_P1_SH
+
+    - name: 加载自定义配置
+      run: |
+        [ -e files ] && mv files $OPENWRT_PATH/files
+        [ -e $CONFIG_FILE ] && mv $CONFIG_FILE $OPENWRT_PATH/.config
+        chmod +x $DIY_P2_SH
+        cd $OPENWRT_PATH
+        $GITHUB_WORKSPACE/$DIY_P2_SH
+
+    - name: 生成变量
+      run: |
+        # cp $CONFIG_FILE $OPENWRT_PATH/.config
+        # cp $FEEDS_FILE $OPENWRT_PATH/feeds.conf.default
+        cd $OPENWRT_PATH
+        make defconfig > /dev/null 2>&1
+        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
+        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
+        DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
+        echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
+        DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
+        echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
+        #添加变量
+        echo "Generate_EMMC_firmware=${{ github.event.inputs.Generate_EMMC_firmware }}" >> $GITHUB_ENV
+        echo "SSH_ACTION=${{ github.event.inputs.SSH_ACTION }}" >> $GITHUB_ENV
+        echo "CACHE_TOOLCHAIN=${{ github.event.inputs.CACHE_TOOLCHAIN }}" >> $GITHUB_ENV
+        echo "UPLOAD_RELEASES=${{ github.event.inputs.UPLOAD_RELEASES }}" >> $GITHUB_ENV
+        echo "UPLOAD_BIN_ARTIFACTS=${{ github.event.inputs.UPLOAD_BIN_ARTIFACTS }}" >> $GITHUB_ENV
+
+    - name: SSH 连接 Actions
+      if: env.SSH_ACTION == 'true'
+      uses: kiddin9/debugger-action@master
+
+    - name: 缓存工具链
+      if: env.CACHE_TOOLCHAIN == 'true'
+      uses: HiGarfield/cachewrtbuild@main
+      with:
+        ccache: 'true'
+        toolchain: 'true'
+        mixkey: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}
+        prefix: ${{ env.OPENWRT_PATH }}
+
+    - name: 生成config
+      run: |
+        cd $OPENWRT_PATH && make defconfig && ./scripts/diffconfig.sh > AAA.txt
+
+    # - name: 配置文件上传Github Artifacts
+    #   uses: actions/upload-artifact@main
+    #   with:
+    #     name: config
+    #     path: openwrt/AAA.txt
+
+    # - name: 输出编译信息
+    #   run: |
+    #     cd $OPENWRT_PATH
+    #     make defconfig
+    #     echo
+    #     echo "=========================================="
+    #     grep -i CONFIG_PACKAGE_luci-app .config | grep  -v \# > Plug-in
+    #     grep -i CONFIG_PACKAGE_luci-theme .config | grep  -v \# >> Plug-in
+    #     sed -i '/INCLUDE/d' Plug-in > /dev/null 2>&1
+    #     sed -i 's/CONFIG_PACKAGE_/、/g' Plug-in
+    #     sed -i '/Transparent_Proxy/d' Plug-in > /dev/null 2>&1 #排除 luci-app-passwall_Transparent_Proxy
+    #     sed -i '/qbittorrent-simple_dynamic/d' Plug-in > /dev/null 2>&1 #排除 luci-app-qbittorrent-simple_dynamic
+    #     sed -i 's/=y/\ /g' Plug-in
+    #     awk '$0=NR$0' Plug-in > Plug-2
+    #     awk '{print "	" $0}' Plug-2 > Plug-in
+    #     echo
+    #     echo
+    #     echo "	      已选插件列表"
+    #     cat Plug-in
+    #     rm -rf {Plug-in,Plug-2}
+    #     echo
+    #     echo "=========================================="
+    #     echo
+    #     echo
+    #     echo "输出完整插件信息..."
+    #     echo
+    #     echo
+    #     cat AAA.txt
+
+    - name: 输出编译信息
+      run: |
+          cd $OPENWRT_PATH
+          echo " 系统空间      类型   总数  已用  可用 使用率"
+          df -hT $PWD
+
+          echo
+          echo "=========================================="
+          echo
+          ZZZ="package/lean/default-settings/files/zzz-default-settings"
+          echo "DISTRIB_REVISION=$(cat $ZZZ|grep DISTRIB_REVISION= | sed 's/^.\{24\}//g' | sed 's/.\{26\}$//')" >> $GITHUB_ENV
+          echo "KERNEL_PATCHVER=$(cat target/linux/ipq40xx/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')" >> $GITHUB_ENV
+          echo "	    当前编译版本：$(cat $ZZZ|grep DISTRIB_REVISION= | sed 's/^.\{24\}//g' | sed 's/.\{26\}$//')"
+          echo "	    内核版本：$(cat target/linux/ipq40xx/Makefile|grep KERNEL_PATCHVER | sed 's/^.\{17\}//g')"
+          echo
+          echo "=========================================="
+          grep -i CONFIG_PACKAGE_luci-app .config | grep  -v \# > Plug-in
+          grep -i CONFIG_PACKAGE_luci-theme .config | grep  -v \# >> Plug-in
+          sed -i '/INCLUDE/d' Plug-in > /dev/null 2>&1
+          sed -i 's/CONFIG_PACKAGE_/、/g' Plug-in
+          sed -i '/Transparent_Proxy/d' Plug-in > /dev/null 2>&1 #排除 luci-app-passwall_Transparent_Proxy
+          sed -i '/qbittorrent-simple_dynamic/d' Plug-in > /dev/null 2>&1 #排除 luci-app-qbittorrent-simple_dynamic
+          sed -i 's/=y/\ /g' Plug-in
+          awk '$0=NR$0' Plug-in > Plug-2
+          awk '{print "	" $0}' Plug-2 > Plug-in
+          echo
+          echo
+          echo "	      已选插件列表"
+          cat Plug-in
+          rm -rf {Plug-in,Plug-2}
+          echo
+          echo "=========================================="
+          echo
+          echo
+          echo "输出完整插件信息..."
+          echo
+          echo
+          cat AAA.txt
+
+    - name: 下载DL软件包
+      run: |
+        cd $OPENWRT_PATH
+        make defconfig
+        make download -j8
+        find dl -size -1024c -exec ls -l {} \;
+        find dl -size -1024c -exec rm -f {} \;
+
+    - name: 开始编译固件
+      id: compile
+      run: |
+        cd $OPENWRT_PATH
+        echo -e "$(nproc) thread compile"
+        make -j$(nproc) || make -j1 || make -j1 V=s
+        echo "status=success" >> $GITHUB_OUTPUT
+        echo "DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
+        echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+
+    - name: 检查空间使用情况
+      if: (!cancelled())
+      run: df -hT
+
+    - name: 上传Bin目录
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_ARTIFACTS == 'true'
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
+        path: ${{ env.OPENWRT_PATH }}/bin
+
+    - name: 整理文件
+      if: steps.compile.outputs.status == 'success'
+      run: |
+        cd $OPENWRT_PATH/bin/targets/*/*
+        cat sha256sums
+        # cp $OPENWRT_PATH/.config build.config
+        # mv -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages
+        # tar -zcf Packages.tar.gz packages
+        rm -rf {packages,*.buildinfo,*.json,*.manifest,*kernel.bin,*-rootfs.*,sha256sums,*.sha}
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
+        echo "编译完成时间..."
+        START_SECONDS=${{ env.START_SECONDS }}
+        END_TIME=`date +'%Y-%m-%d %H:%M:%S'`
+        END_SECONDS=$(date --date="$END_TIME" +%s)
+        SECONDS=$((END_SECONDS-START_SECONDS))
+        HOUR=$(( $SECONDS/3600 )) && MIN=$(( ($SECONDS-${HOUR}*3600)/60 )) && SEC=$(( $SECONDS-${HOUR}*3600-${MIN}*60 ))
+        echo "BUILD_TIME=${HOUR}时${MIN}分${SEC}秒" >> $GITHUB_ENV
+
+    - name: 将固件上传到Artifact
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASES == 'true'
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
+        path: ${{ env.FIRMWARE_PATH }}
+
+    - name: 发布固件到 Release
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASES == 'true'
+      uses: ncipollo/release-action@v1
+      with:
+        name: R${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}
+        allowUpdates: true
+        tag: ${{ env.FIRMWARE_TAG }}
+        token: ${{ secrets.GITHUB_TOKEN }}
+        artifacts: ${{ env.FIRMWARE_PATH }}/*
+        body: |
+          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
+          ### 📒 固件信息(Lean_x86固件)
+          - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
+          
+          - ⚽ 固件源码: ${{ env.REPO_URL }}
+          
+          - 💝 源码分支: ${{ env.REPO_BRANCH }}
+          
+          - ⏰ 编译时间：${{ env.FILE_TIME1 }}
+
+          - 🎈 编译用时：${{ env.BUILD_TIME }}
+          
+          - 🌐 默认地址: 192.168.9.253
+          - 🌴 名称：root
+          - 🔑 默认密码: password
+          ### 🧊 固件版本
+          - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
+          - ${{ env.VERSION_INFO }}
+
+    - name: 删除运行记录
+      uses: Mattraks/delete-workflow-runs@v2
+      # if: steps.compile.outputs.status == 'success' && !cancelled()
+      continue-on-error: true
+      with:
+          retain_days: 0     #保留最后多少记录不删除
+          keep_minimum_runs: 0
+
+    - name: 删除自动发布的旧固件
+      uses: dev-drprasad/delete-older-releases@v0.3.3
+      continue-on-error: true
+      # if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
+      with:
+          keep_latest: 1     #保留多少个releases不删除
+          delete_tags: true
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
