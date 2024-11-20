@@ -176,8 +176,11 @@ jobs:
         echo "UPLOAD_BIN_ARTIFACTS=${{ github.event.inputs.UPLOAD_BIN_ARTIFACTS }}" >> $GITHUB_ENV
 
     - name: SSH 连接 Actions
+      uses: P3TERX/ssh2actions@v1.0.0
       if: env.SSH_ACTION == 'true'
-      uses: kiddin9/debugger-action@master
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
 
     - name: 缓存工具链
       if: env.CACHE_TOOLCHAIN == 'true'
