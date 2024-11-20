@@ -406,6 +406,13 @@ jobs:
           - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
           - ${{ env.VERSION_INFO }}
 
+    - name: 微信通知
+      uses: emon100/Action-Serverchan@v2
+      with:
+        SCKEY: ${{ secrets.SCKEY }}
+        text: 恭喜主人${{ env.FIRMWARE_TAG }}固件编译成功！
+        desp: 恭喜主人${{ env.FIRMWARE_TAG }}固件编译成功！
+
     - name: 删除运行记录
       uses: Mattraks/delete-workflow-runs@v2
       # if: steps.compile.outputs.status == 'success' && !cancelled()
