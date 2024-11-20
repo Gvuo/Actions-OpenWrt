@@ -411,7 +411,7 @@ jobs:
       with:
         SCKEY: ${{ secrets.SCKEY }}
         text: 恭喜主人${{ env.FIRMWARE_TAG }}固件编译成功！
-        desp: 恭喜主人${{ env.FIRMWARE_TAG }}固件编译成功！
+        desp: 您的${{ env.FIRMWARE_TAG }}固件成功编译完成了 🎈！！！
 
     - name: 删除运行记录
       uses: Mattraks/delete-workflow-runs@v2
