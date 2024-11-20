@@ -11,20 +11,18 @@ jobs:
 
     steps:
 
-    - name: 删除Actions运行记录
-      uses: Mattraks/delete-workflow-runs@v2
-      # if: steps.compile.outputs.status == 'success' && !cancelled()
-      continue-on-error: true
-      with:
-          retain_days: 0     #保留最后多少记录不删除
-          keep_minimum_runs: 0
+    - name: 微信通知
+      uses: emon100/Action-Serverchan@v2
 
-    - name: 删除自动发布的旧固件
-      uses: dev-drprasad/delete-older-releases@v0.3.3
-      continue-on-error: true
-      # if: steps.compile.outputs.status == 'success' && env.UPLOAD_RELEASE == 'true' && !cancelled()
       with:
-          keep_latest: 0     #保留多少个releases不删除
-          delete_tags: true
-      env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        SCKEY: ${{ secrets.SCKEY }}
+        text: 主人${{matrix.target}}编译开始啦
+        desp: 主人您要编译的[${{matrix.target}}]固件正在努力耕耘中(${{env.CangKu}}仓库的#${{env.Run_number}}号),请耐心等待......
+
+    - name: 微信通知
+      uses: emon100/Action-Serverchan@v2
+
+      with:
+        SCKEY: ${{ secrets.SCKEY }}
+        text: 恭喜主人${{matrix.target}}固件编译成功！
+        desp: 我亲爱的主人您使用${{matrix.target}}文件夹编译的[ ${{ env.CODE }}-${{ env.TARGET_PROFILE }} ]固件(${{ env.CangKu }}仓库的#${{ env.Run_number }}号)顺利编译完成了！
